@@ -52,7 +52,7 @@ def parse_args():
                         help='Number of hidden neurons.')
     parser.add_argument('--dns', type=int, default=1,
                         help='number of negative sample for each positive in dns.')
-    parser.add_argument('--regs', nargs='?', default='[1e-6,0,10]',
+    parser.add_argument('--regs', nargs='?', default='[0.01,10,1]',
                         help='Regularization for user and item embeddings, fully-connected weights, CNN filter weights.')
     parser.add_argument('--task', nargs='?', default='',
                         help='Add the task name for launching experiments')
