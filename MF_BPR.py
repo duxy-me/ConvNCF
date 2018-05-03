@@ -46,7 +46,7 @@ def parse_args():
                         help='Embedding size.')
     parser.add_argument('--dns', type=int, default=1,
                         help='number of negative sample for each positive in dns.')
-    parser.add_argument('--regs', nargs='?', default='[0,0,0]',
+    parser.add_argument('--regs', nargs='?', default='[0.01,0,0]',
                         help='Regularization for user and item embeddings.')
     parser.add_argument('--task', nargs='?', default='',
                         help='Add the task name for launching experiments')
