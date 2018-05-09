@@ -37,7 +37,7 @@ If you use the codes, please cite our paper . Thanks!
 # Dataset
 
 
-We provide three processed datasets: Yelp(yelp), MovieLens 1 Million (ml-1m) and Pinterest (pinterest-20) in Data/
+We provide the compressed dataset Yelp(yelp) in Data/
 
 ### train.rating:
 
