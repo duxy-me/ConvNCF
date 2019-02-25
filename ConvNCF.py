@@ -522,21 +522,6 @@ def _eval_by_user(user):
     ret += scoreK(10, position, len(predictions))
     ret += scoreK(20, position, len(predictions))
     return ret
-    # calculate AUC for training set
-    train_auc = 0
-    if _model.train_auc:
-        for train_res in train_predict:
-            train_auc += (train_res >= neg_predict).sum() / len(neg_predict)
-        train_auc /= len(train_predict)
-
-    # calculate HR@K, NDCG@K, AUC
-    hr = position < _K
-    if hr:
-        ndcg = math.log(2) / math.log(position+2)
-    else:
-        ndcg = 0
-    auc = 1 - (position * 1. / len(neg_predict))  # formula: [#(Xui>Xuj) / #(Items)] = [1 - #(Xui<=Xuj) / #(Items)]
-    return hr, ndcg, auc, train_auc
 
 def init_logging(args):
     regs = eval(args.regs)
