@@ -1,0 +1,4 @@
+Data/*
+__pycache__
+Log/*
+*.npy

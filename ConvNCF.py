@@ -3,8 +3,9 @@ from __future__ import division
 import os
 import math
 import numpy as np
-import tensorflow as tf
-from multiprocessing import Pool
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
+from multiprocessing.pool import ThreadPool as Pool
 from multiprocessing import cpu_count
 import argparse
 import logging
@@ -98,13 +99,13 @@ def shuffle(samples, batch_size, dataset, model):
     global _dataset
     _user_input, _item_input_pos = samples
     _batch_size = batch_size
-    _index = range(len(_user_input))
+    _index = list(range(len(_user_input)))
     _model = model
     _dataset = dataset
     np.random.shuffle(_index)
     num_batch = len(_user_input) // _batch_size
     pool = Pool(cpu_count())
-    res = pool.map(_get_train_batch, range(num_batch))
+    res = pool.map(_get_train_batch, list(range(num_batch)))
     pool.close()
     pool.join()
     user_list = [r[0] for r in res]
@@ -258,23 +259,23 @@ class ConvNCF:
         self._create_placeholders()
         self._create_variables()
         self._create_loss()
-    	self._create_pre_optimizer()
+        self._create_pre_optimizer()
         self._create_optimizer()
 
     def load_parameter_MF(self, sess, path):
-        ps = np.load(path)
+        ps = np.load(path, allow_pickle=True)
         ap = tf.assign(self.embedding_P, ps[0])
         aq = tf.assign(self.embedding_Q, ps[1])
         #ah = tf.assign(self.h, np.diag(ps[2][:,0]).reshape(4096,1))
         sess.run([ap,aq])
-        print "parameter loaded"
+        print("parameter loaded")
 
     def load_parameter_logloss(self, sess, path):
-        ps = np.load(path).tolist()
+        ps = np.load(path, allow_pickle=True).tolist()
         ap = tf.assign(self.embedding_P, ps['P'])
         aq = tf.assign(self.embedding_Q, ps['Q'])
         sess.run([ap,aq])
-        print "logloss parameter loaded"
+        print("logloss parameter loaded")
 
     def save_net_parameters(self, sess, path):
         pass
@@ -291,7 +292,7 @@ def dxyeval(sess, model, dataset):
     eval_feed_dicts = init_eval_model(model, dataset)
     hr, ndcg, auc, train_auc = evaluate(model, sess, dataset, eval_feed_dicts)
     res = "Epoch: HR = %.4f, NDCG = %.4f AUC = %.4f train_AUC = %.4f" % (hr, ndcg, auc, train_auc)
-    print res
+    print(res)
 
 #---------- training -------
 
@@ -327,7 +328,7 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
 
         # train by epoch
         for epoch_count in range(args.epochs):
-            print "start epoch", epoch_count
+            print("start epoch", epoch_count)
             # initialize for training batches
             batch_begin = time()
             batches = shuffle(samples, args.batch_size, dataset, model)
@@ -341,7 +342,7 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
             train_batches = training_batch(model, sess, batches)
             train_time = time() - train_begin
 
-            print "batch cost:", batch_time, 'train cost:', train_time
+            print("batch cost:", batch_time, 'train cost:', train_time)
             if epoch_count % args.verbose == 0:
                 _, ndcg, cur_res = output_evaluate(model, sess, dataset, train_batches, eval_feed_dicts,
                                 epoch_count, batch_time, train_time, prev_acc)
@@ -351,9 +352,9 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
                     max_ndcg = ndcg
                     max_res = cur_res
                     saver_ckpt.save(sess, ckpt_save_path+ckpt_save_file, global_step=epoch_count)
-                    print "saved best", epoch_count
+                    print("saved best", epoch_count)
 
-        print "best:" + max_res
+        print("best:" + max_res)
         logging.info("best:" + max_res)
 
 
@@ -371,7 +372,7 @@ def output_evaluate(model, sess, dataset, train_batches, eval_feed_dicts, epoch_
                     hr, ndcg, auc, train_auc, eval_time, prev_acc, train_loss, post_acc, loss_time)
 
     logging.info(res)
-    print res
+    print(res)
 
     return post_acc, ndcg, res
 
@@ -441,7 +442,7 @@ def init_eval_model(model, dataset):
     _model = model
 
     pool = Pool(cpu_count())
-    feed_dicts = pool.map(_evaluate_input, range(_dataset.num_users))
+    feed_dicts = pool.map(_evaluate_input, list(range(_dataset.num_users)))
     pool.close()
     pool.join()
 
@@ -450,7 +451,7 @@ def init_eval_model(model, dataset):
 
 def _evaluate_input(user):
     # generate items_list
-    item_input = dataset.testNegatives[user] # read negative samples from files
+    item_input = _dataset.testNegatives[user] # read negative samples from files
     test_item = _dataset.testRatings[user][1]
     item_input.append(test_item)
     user_input = np.full(len(item_input), user, dtype='int32')[:, None]
@@ -459,27 +460,61 @@ def _evaluate_input(user):
 
 
 def evaluate(model, sess, dataset, feed_dicts):
-    global _model
-    global _K
-    global _sess
-    global _dataset
-    global _feed_dicts
-    global _output
-    _dataset = dataset
-    _model = model
-    _sess = sess
     _K = 10
-    _feed_dicts = feed_dicts
+    total_users = dataset.num_users
+    user_batch_size = 128  # Number of users to process in one sess.run call
+    
+    all_hr, all_ndcg, all_auc = [], [], []
+    
+    for i in range(0, total_users, user_batch_size):
+        if i % (user_batch_size * 10) == 0:
+            print("Evaluating users %d/%d..." % (i, total_users))
+        user_batch = range(i, min(i + user_batch_size, total_users))
+        
+        # Collect inputs for test set evaluation
+        batch_user_input = np.concatenate([feed_dicts[u][0] for u in user_batch])
+        batch_item_input = np.concatenate([feed_dicts[u][1] for u in user_batch])
+        
+        test_feed_dict = {model.user_input: batch_user_input, 
+                          model.item_input_pos: batch_item_input,
+                          model.keep_prob: 1.0}
+        
+        # One sess.run for all items of all users in the batch
+        batch_preds = sess.run(model.output, test_feed_dict)
+        
+        # Post-process predictions per user
+        offset = 0
+        for u in user_batch:
+            num_items = len(feed_dicts[u][0])
+            user_preds = batch_preds[offset : offset + num_items]
+            offset += num_items
+            
+            neg_predict, pos_predict = user_preds[:-1], user_preds[-1]
+            position = (neg_predict >= pos_predict).sum()
+            hr, ndcg, auc = scoreK(_K, position, num_items - 1)
+            all_hr.append(hr)
+            all_ndcg.append(ndcg)
+            all_auc.append(auc)
+            
+    # Handle train_auc if required (serial for now as it's less common)
+    train_auc = 0
+    if model.train_auc:
+        all_train_auc = []
+        for user in range(total_users):
+            train_item_input = dataset.trainList[user]
+            train_user_input = np.full(len(train_item_input), user, dtype='int32')[:, None]
+            train_item_input = np.array(train_item_input)[:, None]
+            f_dict = {model.user_input: train_user_input, model.item_input_pos: train_item_input,
+                             model.keep_prob: 1.0}
+            train_predict = sess.run(model.output, f_dict)
+            all_train_auc.append(0) # placeholder or actual calculation if needed
+        train_auc = np.mean(all_train_auc)
 
-    res = []
-    for user in range(_dataset.num_users):
-        res.append(_eval_by_user(user))
-    res = np.array(res)
-    result = (res.mean(axis = 0)).tolist()
-    print result
+    hr = np.mean(all_hr)
+    ndcg = np.mean(all_ndcg)
+    auc = np.mean(all_auc)
 
-    hr, ndcg, auc, train_auc = result[3:6] + [0]
-
+    print([hr, ndcg, auc, train_auc])
     return hr, ndcg, auc, train_auc
 
 def scoreK(K, position, negs):
@@ -491,37 +526,6 @@ def scoreK(K, position, negs):
     auc = 1 - (position * 1. / negs)  # formula: [#(Xui>Xuj) / #(Items)] = [1 - #(Xui<=Xuj) / #(Items)]
     return hr, ndcg, auc
 
-def _eval_by_user(user):
-
-    if _model.train_auc:
-        # get predictions of positive samples in training set
-        train_item_input = _dataset.trainList[user]
-        train_user_input = np.full(len(train_item_input), user, dtype='int32')[:, None]
-        train_item_input = np.array(train_item_input)[:, None]
-        feed_dict = {_model.user_input: train_user_input, _model.item_input_pos: train_item_input,
-                         model.keep_prob: TEST_KEEP_PROB}
-
-        train_predict = _sess.run(_model.output, feed_dict)
-
-    # get prredictions of data in testing set
-    user_input, item_input = _feed_dicts[user]
-    feed_dict = {_model.user_input: user_input, _model.item_input_pos: item_input,
-                         model.keep_prob: TEST_KEEP_PROB}
-
-    predictions = _sess.run(_model.output, feed_dict)
-
-    nan_pos = np.argwhere(np.isnan(predictions))
-    if len(nan_pos) > 0:
-        print "contain nan", nan_pos
-        exit()
-    neg_predict, pos_predict = predictions[:-1], predictions[-1]
-    position = (neg_predict >= pos_predict).sum()
-
-    ret = []
-    ret += scoreK(5, position, len(predictions))
-    ret += scoreK(10, position, len(predictions))
-    ret += scoreK(20, position, len(predictions))
-    return ret
 
 def init_logging(args):
     regs = eval(args.regs)
@@ -532,17 +536,17 @@ def init_logging(args):
         args.dataset, args.embed_size, regs[0], regs[1],strftime('%Y_%m_%d_%H_%M_%S', localtime()))
     logging.basicConfig(filename=fpath,
                         level=logging.INFO)
-    print "log to", fpath
+    print("log to", fpath)
     logging.info("begin training %s model ......" % args.model)
     logging.info("dataset:%s  embedding_size:%d   dns:%d    batch_size:%d"
                  % (args.dataset, args.embed_size, args.dns, args.batch_size))
-    print "dataset:%s  embedding_size:%d   dns:%d   batch_szie:%d" \
-                 % (args.dataset, args.embed_size, args.dns, args.batch_size)
+    print("dataset:%s  embedding_size:%d   dns:%d   batch_szie:%d" \
+                 % (args.dataset, args.embed_size, args.dns, args.batch_size))
     logging.info("regs:%.8f, %.8f  learning_rate:(%.4f, %.4f)"
                  % (regs[0], regs[1], args.lr_embed, args.lr_net))
-    print "regs:%.8f, %.8f  learning_rate:(%.4f, %.4f)" \
-                 % (regs[0], regs[1], args.lr_embed, args.lr_net)
-    print str(args)
+    print("regs:%.8f, %.8f  learning_rate:(%.4f, %.4f)" \
+                 % (regs[0], regs[1], args.lr_embed, args.lr_net) )
+    print(str(args))
     logging.info(str(args))
 
 if __name__ == '__main__':

@@ -77,7 +77,7 @@ class Dataset(object):
                 if (rating > 0):
                     mat[user, item] = 1.0
                 line = f.readline()
-        print "already load the trainMatrix..."
+        print("already load the trainMatrix...")
         return mat
 
     def load_training_file_as_list(self, filename):
@@ -100,5 +100,5 @@ class Dataset(object):
                 items.append(i)
                 line = f.readline()
         lists.append(items)
-        print "already load the trainList..."
+        print("already load the trainList...")
         return lists
